@@ -178,9 +178,9 @@ echo "--- [3/5] Initializing ipset blacklists and persistence ---"
 # Check for IPv6 support
 KERNEL_IPV6_SUPPORT=$( [ -f /proc/net/if_inet6 ] && echo "yes" || echo "" )
 
-# Create ipsets immediately
-ipset create persistent_offenders hash:ip timeout 2592000 -exist
-[ ! -z "$KERNEL_IPV6_SUPPORT" ] && ipset create persistent_offenders6 hash:ip family inet6 timeout 2592000 -exist
+# Create ipsets immediately (24 days; ipset maximum is 2147483 seconds).
+ipset create persistent_offenders hash:ip timeout 2073600 -exist
+[ ! -z "$KERNEL_IPV6_SUPPORT" ] && ipset create persistent_offenders6 hash:ip family inet6 timeout 2073600 -exist
 
 # Ensure ipsets are recreated on boot before UFW loads
 # We use /etc/ufw/before.init which is executed by UFW before rules are applied
@@ -194,9 +194,10 @@ fi
 sed -i '/# === BEGIN GEOIPBLOCK-INIT ===/,/# === END GEOIPBLOCK-INIT ===/d' "$INIT_FILE"
 cat << 'EOF' >> "$INIT_FILE"
 # === BEGIN GEOIPBLOCK-INIT ===
-ipset create persistent_offenders hash:ip timeout 2592000 -exist
+# 24 days (2073600 seconds), below the ipset maximum of 2147483 seconds.
+ipset create persistent_offenders hash:ip timeout 2073600 -exist
 if [ -f /proc/net/if_inet6 ]; then
-    ipset create persistent_offenders6 hash:ip family inet6 timeout 2592000 -exist
+    ipset create persistent_offenders6 hash:ip family inet6 timeout 2073600 -exist
 fi
 # === END GEOIPBLOCK-INIT ===
 EOF

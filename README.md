@@ -166,6 +166,17 @@ if ! sudo test -e /etc/geoipblock.conf; then
 fi
 ```
 
+An existing boot hook from an older version may still contain `timeout 2592000`, which exceeds ipset's limit. Back it up and change the timeout to 24 days only within this tool's managed block:
+
+```bash
+if sudo test -f /etc/ufw/before.init; then
+    sudo cp -a /etc/ufw/before.init "$GEOIP_BACKUP/before.init"
+    sudo sed -i '/# === BEGIN GEOIPBLOCK-INIT ===/,/# === END GEOIPBLOCK-INIT ===/s/timeout 2592000/timeout 2073600/g' /etc/ufw/before.init
+fi
+```
+
+This takes effect when the sets are next created. It does not change an existing set's default timeout or the remaining lifetime of its members; `ipset create ... -exist` does not update an existing set's configuration either.
+
 The service executable path is unchanged, so replacing unit files or running `daemon-reload` is unnecessary. These steps do not run `install.sh`: they do not regenerate UFW rules or schedule the three-minute rollback, and `geoipblock-confirm` is not required.
 
 ### 4. Select a source and verify the update
@@ -241,7 +252,9 @@ journalctl -u update-geoip.service
 
 ## 🖤 Manual Blacklisting (ipset)
 
-Phase 1 of the defense system uses a high-performance `ipset` named `persistent_offenders`. You can use this to manually block specific IPs (even those from your allowed country) for 30 days:
+The [ipset manual](https://ipset.netfilter.org/ipset.man.html) specifies a maximum timeout of 2,147,483 seconds. The previous 30-day value (2,592,000 seconds) exceeded that limit, so both initial and boot-time IPv4/IPv6 set creation now use 24 days. When upgrading, also patch `/etc/ufw/before.init` as described above. If an earlier installation stopped with this error, rerun the updated `install.sh` with your original allowed countries and port configuration, then follow the normal confirmation workflow.
+
+Phase 1 of the defense system uses a high-performance `ipset` named `persistent_offenders`. You can use this to manually block specific IPs (even those from your allowed country) for 24 days (2,073,600 seconds):
 
 ```bash
 # Block an IP

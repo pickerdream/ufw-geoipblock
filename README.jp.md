@@ -158,6 +158,17 @@ if ! sudo test -e /etc/geoipblock.conf; then
 fi
 ```
 
+旧版で作成済みの起動設定には、ipsetの上限を超える `timeout 2592000` が残っている場合があります。次のコマンドでバックアップし、本ツールの管理ブロック内だけを24日へ修正します。
+
+```bash
+if sudo test -f /etc/ufw/before.init; then
+    sudo cp -a /etc/ufw/before.init "$GEOIP_BACKUP/before.init"
+    sudo sed -i '/# === BEGIN GEOIPBLOCK-INIT ===/,/# === END GEOIPBLOCK-INIT ===/s/timeout 2592000/timeout 2073600/g' /etc/ufw/before.init
+fi
+```
+
+この修正は次回のipset作成時に適用されます。既存セットの既定タイムアウトや登録済みIPの残り時間は変更しません。`ipset create ... -exist` でも既存セットの設定は更新されません。
+
 既存サービスの実行パスは変わらないため、unitファイルの置き換えや `daemon-reload` は不要です。この手順では `install.sh` を実行しないため、UFWルールの再生成や3分間の自動ロールバックは行われず、`geoipblock-confirm` も不要です。
 
 ### 4. データソースを選び、更新を確認する
@@ -234,7 +245,9 @@ journalctl -u update-geoip.service
 
 ## 🖤 手動ブラックリスト (ipset)
 
-防御システムの Phase 1 では、`persistent_offenders` という名前の高速な `ipset` を使用しています。許可された国からのアクセスであっても、特定のIPを個別に30日間ブロックしたい場合に使用できます：
+ipsetの最大タイムアウトは [公式マニュアル](https://ipset.netfilter.org/ipset.man.html) で2,147,483秒とされています。旧版の30日（2,592,000秒）は上限を超えるため、初回作成時と起動時のIPv4・IPv6設定を24日に変更しています。旧版から更新する場合は、上記の更新手順で `/etc/ufw/before.init` も修正してください。旧版のインストールがこのエラーで中断した場合は、更新版の `install.sh` を元と同じ許可国・ポート設定で再実行し、通常の確認手順に従ってください。
+
+防御システムの Phase 1 では、`persistent_offenders` という名前の高速な `ipset` を使用しています。許可された国からのアクセスであっても、特定のIPを個別に24日間（2,073,600秒）ブロックしたい場合に使用できます：
 
 ```bash
 # 特定のIPをブロック
