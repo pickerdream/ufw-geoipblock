@@ -30,7 +30,7 @@ rm -f /etc/systemd/system/update-geoip.timer
 rm -f /etc/systemd/system/update-geoip.service
 systemctl daemon-reload
 
-rm -f /usr/local/bin/update-geoip.sh
+rm -f /usr/local/bin/update-geoip.sh /usr/local/bin/maxmind-to-dbip.py
 
 echo "--- [4/4] Removing GeoIP databases ---"
 rm -rf /usr/share/xt_geoip
@@ -40,5 +40,6 @@ echo "==============================================================="
 echo " Uninstallation Complete!"
 echo " GeoIP rules have been surgically removed from UFW rules."
 echo " GeoIP databases have been deleted."
+echo " Note: /etc/geoipblock.conf is retained; remove it manually to delete credentials."
 echo " Note: Dependencies (xtables-addons, ipset, etc.) were not removed."
 echo "==============================================================="

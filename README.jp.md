@@ -36,7 +36,7 @@
 ## 📋 前提条件
 
 `install.sh` は Debian/Ubuntu システムにおいて、以下の依存パッケージを `apt-get` で自動的にインストールしようと試みます：
-- `xtables-addons-common`, `libtext-csv-xs-perl`, `ipset`, `pkg-config`, `ufw`, `curl`
+- `xtables-addons-common`, `libtext-csv-xs-perl`, `libnet-cidr-lite-perl`, `ipset`, `pkg-config`, `ufw`, `curl`, `python3`
 
 ## 🚀 インストール
 
@@ -58,6 +58,37 @@ sudo ./install.sh JP 22,80,443
 sudo ./install.sh JP,US,TW ports.csv
 ```
 
+### MaxMind GeoLite2 Country を使用する
+
+既定はDB-IPです。MaxMindの **GeoLite2 Country CSV** を使用するには、MaxMindアカウントを作成し、ダウンロード権限のあるアカウントIDとライセンスキーを用意してください。
+[MaxMind公式の取得手順](https://dev.maxmind.com/geoip/updating-databases/)も参照できます。
+
+インストール前、または既存環境の切り替え時に、設定ファイルがまだなければ作成して編集します。
+
+```bash
+sudo test -e /etc/geoipblock.conf || sudo install -o root -g root -m 600 geoipblock.conf.sample /etc/geoipblock.conf
+sudoedit /etc/geoipblock.conf
+```
+
+```bash
+GEOIP_SOURCE=maxmind
+MAXMIND_ACCOUNT_ID='数字のアカウントID'
+MAXMIND_LICENSE_KEY='ライセンスキー'
+```
+
+新規導入時は `sudo ./install.sh JP ports.csv` を実行し、下記の確認手順に従ってください。既存環境は後述の「MaxMind対応前のバージョンから更新する」に従ってください。
+更新版の導入後、設定だけを変更した場合は `sudo /usr/local/bin/update-geoip.sh` で反映できます。毎日の自動更新も同じ設定を読みます。
+DB-IPへ戻す場合は `GEOIP_SOURCE=dbip` に変更します。インストーラーは既存の設定ファイルを上書きしません。
+
+IPv4・IPv6に対応し、地理的な国を示す `geoname_id` で判定します。国が不明な範囲は除外し、ISPの登録国への置き換えは行いません。
+CSV ZIPを `xt_geoip_build` 向けの形式へ変換する方式で、`.mmdb` ファイルの直接読み込みには対応していません。
+ダウンロード・変換の失敗や空のビルドでは既存DBを保持します。
+更新対象はディスク上のDBです。読み込み済みのファイアウォールルールには、`sudo ufw reload` などで再読み込みするまで古い範囲が残る場合があります。
+
+`/etc/geoipblock.conf` はシェルとして読み込まれ、認証情報を含むため、root所有・権限 `600` で管理してください。認証情報はGitに登録しないでください。
+アンインストール後もこの設定は残ります。認証情報も削除する場合は手動で削除してください。
+データはMaxMindの利用条件に従って使用してください。MaxMind選択時は、[MaxMind](https://www.maxmind.com) が作成したGeoLite2データを使用します。
+
 ### 🚨 ワークフローとロールバック
 誤った設定によるロックアウトを防ぐため、3分間の確認ウィンドウが設けられています：
 1. `./install.sh` を実行します。
@@ -77,6 +108,104 @@ sudo ./install.sh JP,US,TW ports.csv
 3000:3010,Dev Web Servers,pass
 ```
 *GeoIP フィルタリングを無効にするには、ステータスを `pass`（または `block` 以外）に変更して `install.sh` を再実行してください。*
+
+## 🔄 MaxMind対応前のバージョンから更新する
+
+既にインストール済みの場合は、以下の手順で更新スクリプトと変換ツールを入れ替えます。既存の許可国・ポート・信頼サブネット・ipset・systemd設定を維持できます。アンインストールは不要です。`git pull` だけでは `/usr/local/bin` の実行ファイルは更新されません。
+
+以下は既存の `update-geoip.service` / `update-geoip.timer` を使用している環境向けです。コマンドは同じシェルで順番に実行し、失敗した場合は次に進まず原因を確認してください。
+
+### 1. 対応版のソースを取得する
+
+クローン済みのリポジトリへ移動して実行します。ローカル変更がある場合は先に退避してください。MaxMind対応版が公開されたブランチで実行する必要があります。
+
+```bash
+git status --short
+git pull --ff-only
+test -f maxmind-to-dbip.py && test -f geoipblock.conf.sample
+```
+
+### 2. 自動更新を一時停止し、現状をバックアップする
+
+```bash
+sudo systemctl stop update-geoip.timer
+systemctl is-active update-geoip.service
+```
+
+サービスが `active` または `activating` の場合は終了を待ってください。手動実行中の更新も完了させてから進めます。`inactive` で終了コードが非ゼロになるのは通常の状態です。`failed` の場合は `journalctl -u update-geoip.service` で原因を確認してください。
+
+```bash
+GEOIP_BACKUP=$(sudo mktemp -d /var/backups/geoipblock-upgrade.XXXXXXXX)
+printf 'Backup: %s\n' "$GEOIP_BACKUP"
+sudo cp -a /usr/local/bin/update-geoip.sh "$GEOIP_BACKUP/update-geoip.sh"
+sudo cp -a /usr/share/xt_geoip "$GEOIP_BACKUP/xt_geoip"
+if sudo test -f /etc/geoipblock.conf; then
+    sudo cp -a /etc/geoipblock.conf "$GEOIP_BACKUP/geoipblock.conf"
+fi
+```
+
+表示されたバックアップ先は復旧用に控えてください。初回の対応前バージョンには通常 `/etc/geoipblock.conf` はありません。
+
+### 3. 依存パッケージと更新ファイルを配置する
+
+```bash
+sudo apt-get update
+sudo apt-get install -y xtables-addons-common libtext-csv-xs-perl libnet-cidr-lite-perl curl python3
+sudo install -o root -g root -m 755 update-geoip.sh /usr/local/bin/update-geoip.sh
+sudo install -o root -g root -m 644 maxmind-to-dbip.py /usr/local/bin/maxmind-to-dbip.py
+if ! sudo test -e /etc/geoipblock.conf; then
+    sudo install -o root -g root -m 600 geoipblock.conf.sample /etc/geoipblock.conf
+fi
+```
+
+既存サービスの実行パスは変わらないため、unitファイルの置き換えや `daemon-reload` は不要です。この手順では `install.sh` を実行しないため、UFWルールの再生成や3分間の自動ロールバックは行われず、`geoipblock-confirm` も不要です。
+
+### 4. データソースを選び、更新を確認する
+
+DB-IPを継続する場合は `GEOIP_SOURCE=dbip` のまま進めます。MaxMindへ切り替える場合は、上記「MaxMind GeoLite2 Country を使用する」に従い `/etc/geoipblock.conf` に `GEOIP_SOURCE=maxmind` と認証情報を設定してください。
+
+```bash
+sudo chown root:root /etc/geoipblock.conf
+sudo chmod 600 /etc/geoipblock.conf
+sudo systemctl start update-geoip.service
+sudo systemctl status update-geoip.service --no-pager
+sudo journalctl -u update-geoip.service -n 50 --no-pager
+```
+
+`systemctl start` が成功し、ログに更新完了が記録されたことを確認します。oneshotサービスなので、成功後の状態が `inactive (dead)` になるのは正常です。`status=0/SUCCESS` も確認できます。失敗した場合は設定を修正して再試行するか、下記の復旧手順を使用してください。
+
+DBを読み込み済みのルールへ反映するには、管理コンソールなどの復旧経路を確保してから実行します。データソースを変更すると、同じIPの判定国が変わる場合があります。
+
+```bash
+sudo ufw reload
+```
+
+新しいSSH接続で到達性を確認してから、自動更新を再開します。
+
+```bash
+sudo systemctl start update-geoip.timer
+systemctl list-timers update-geoip.timer --all
+```
+
+### 問題があった場合の復旧
+
+停止したタイマーをそのまま放置しないでください。更新処理が終了していることを確認し、同じシェルの `$GEOIP_BACKUP`（別のシェルなら控えたバックアップ先を再設定）を使って戻します。SSH接続できない場合は管理コンソールから実行します。
+
+```bash
+sudo systemctl stop update-geoip.timer
+sudo test -f "$GEOIP_BACKUP/update-geoip.sh" && sudo test -d "$GEOIP_BACKUP/xt_geoip"
+# 上の確認が成功した場合のみ、以下を実行
+sudo cp -a "$GEOIP_BACKUP/update-geoip.sh" /usr/local/bin/update-geoip.sh
+sudo mv /usr/share/xt_geoip "$GEOIP_BACKUP/xt_geoip.failed"
+sudo cp -a "$GEOIP_BACKUP/xt_geoip" /usr/share/xt_geoip
+if sudo test -f "$GEOIP_BACKUP/geoipblock.conf"; then
+    sudo cp -a "$GEOIP_BACKUP/geoipblock.conf" /etc/geoipblock.conf
+fi
+sudo ufw reload
+sudo systemctl start update-geoip.timer
+```
+
+`xt_geoip.failed` が既に存在する場合は別名を選んでください。対応前のスクリプトは今回追加した設定ファイルと変換ツールを使用しません。新しく作成した認証情報を残したくない場合は `/etc/geoipblock.conf` を手動で削除してください。この復旧はスクリプトとDBを戻すもので、aptで更新したパッケージは戻しません。
 
 ## ⚙️ 設定のオーバーライド
 
@@ -152,7 +281,7 @@ Docker はコンテナのポートを公開する際、iptables の `PREROUTING`
 - CDN を利用している場合、`ports.csv` で該当する HTTP/HTTPS ポートを `pass` に設定し、GeoIP の制御は CDN 側の WAF に任せてください。そうしないと、正当なトラフィックであっても CDN エッジの国籍によっては遮断されてしまいます。
 
 ## ⚠️ トラブルシューティング
-- **データベースのダウンロード失敗**: 最近の `xt_geoip_dl` は DB-IP を使用します。MaxMind からダウンロードしようとして失敗する場合は、`xtables-addons` のバージョンを更新するか、MaxMind のライセンスキーを設定してください。
+- **データベースのダウンロード失敗**: `/etc/geoipblock.conf` の `GEOIP_SOURCE` を確認してください。MaxMindの場合はアカウントID・ライセンスキー・GeoLite2の取得権限と、MaxMindおよびリダイレクト先へのHTTPS接続を確認します。DB-IPの場合は新しい `xtables-addons` を使用してください。
 - **ルールが適用されない**: `lsmod | grep xt_geoip` を実行してカーネルモジュールがロードされているか確認してください。OpenVZ などの VPS カーネルではカスタムモジュールがサポートされていない場合があります。
 - **UFW エラー**: `/var/log/syslog` を確認して、iptables の構文エラーをチェックしてください。
 

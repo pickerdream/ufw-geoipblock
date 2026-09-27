@@ -1,0 +1,8 @@
+# Copy to /etc/geoipblock.conf, owned by root with mode 600.
+# This is a shell configuration file, read by both manual and scheduled updates.
+GEOIP_SOURCE=dbip
+
+# To use GeoLite2 Country CSV, set GEOIP_SOURCE=maxmind and fill in both values.
+# Obtain credentials from your MaxMind account; do not commit them to git.
+MAXMIND_ACCOUNT_ID=''
+MAXMIND_LICENSE_KEY=''

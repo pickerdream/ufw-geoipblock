@@ -20,3 +20,6 @@ jobs:
           scandir: './'
           # Ignore some common warnings if necessary, but by default it checks all .sh files
           # ignore_paths: 'tests'
+
+      - name: Test GeoIP conversion and updater
+        run: python3 -m unittest discover -s tests -v

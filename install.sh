@@ -146,7 +146,7 @@ if [ ! -z "$CURRENT_IP" ]; then
 fi
 
 echo "--- [1/5] Checking dependencies ---"
-DEPENDENCIES=(xtables-addons-common libtext-csv-xs-perl pkg-config ipset ufw curl)
+DEPENDENCIES=(xtables-addons-common libtext-csv-xs-perl libnet-cidr-lite-perl pkg-config ipset ufw curl python3)
 MISSING_PKGS=()
 for pkg in "${DEPENDENCIES[@]}"; do
     if ! dpkg -l "$pkg" >/dev/null 2>&1; then
@@ -166,6 +166,10 @@ fi
 echo "--- [2/5] Setting up GeoIP database ---"
 mkdir -p /usr/share/xt_geoip
 cp "$SCRIPT_DIR/update-geoip.sh" /usr/local/bin/update-geoip.sh
+install -m 644 "$SCRIPT_DIR/maxmind-to-dbip.py" /usr/local/bin/maxmind-to-dbip.py
+if [ ! -e /etc/geoipblock.conf ]; then
+    install -o root -g root -m 600 "$SCRIPT_DIR/geoipblock.conf.sample" /etc/geoipblock.conf
+fi
 chmod +x /usr/local/bin/update-geoip.sh
 /usr/local/bin/update-geoip.sh
 
