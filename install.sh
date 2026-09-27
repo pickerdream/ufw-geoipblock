@@ -86,11 +86,11 @@ process_port_entry() {
 if [ -f "$PORT_CONFIG" ]; then
     echo "--- Reading port configuration from $PORT_CONFIG ---"
     # Sanitize CRLF (\r) and read. Using awk to properly parse basic CSV without breaking on commas in memo.
-    while read -r prange pmemo pstatus || [ -n "$prange" ]; do
+    while IFS=$'\034' read -r prange pmemo pstatus || [ -n "$prange" ]; do
         # Skip empty lines or comments
         [[ -z "${prange// /}" ]] && continue
         [[ "$prange" =~ ^[[:space:]]*# ]] && continue
-        process_port_entry "$prange" "${pmemo:-}" "${pstatus:-enabled}" "$SOURCE_COUNTRY"
+        process_port_entry "$prange" "${pmemo:-}" "${pstatus:-block}" "$SOURCE_COUNTRY"
     done < <(awk -F, '/^[^#]/ && NF>=1 { 
         # Attempt to handle commas in memo by assuming last field is status, first is port, rest is memo
         if (NF >= 3) {
@@ -98,18 +98,18 @@ if [ -f "$PORT_CONFIG" ]; then
             status = $NF
             memo = ""
             for (i=2; i<NF; i++) { memo = memo (i==2?"":",") $i }
-            print port "\t" memo "\t" status
+            print port "\034" memo "\034" status
         } else if (NF == 2) {
-            print $1 "\t" $2 "\t" "block"
+            print $1 "\034" $2 "\034" "block"
         } else {
-            print $1 "\t\t" "block"
+            print $1 "\034\034" "block"
         }
     }' "$PORT_CONFIG" | tr -d '\r')
 else
     echo "--- Using manual port list: $PORT_CONFIG ---"
     IFS=',' read -ra ADDR <<< "$PORT_CONFIG"
     for p in "${ADDR[@]}"; do
-        process_port_entry "$p" "" "enabled" "$SOURCE_COUNTRY"
+        process_port_entry "$p" "" "block" "$SOURCE_COUNTRY"
     done
 fi
 
@@ -225,12 +225,12 @@ inject_rules() {
 
     local detected_subnets
     detected_subnets=$(ip -o -f "$proto_flag" addr show | awk '/scope global/ {print $4}')
-    local trusted_subnets=${TRUSTED_SUBNETS:-$detected_subnets}
+    local trusted_subnets=${TRUSTED_SUBNETS-$detected_subnets}
     
     for subnet in $trusted_subnets; do
         # Basic validation: only use subnets that match the protocol
         if [[ "$proto_flag" == "inet6" && "$subnet" == *":"* ]]; then
-            trusted_rules+="-A ufw-before-input -s $subnet -j ACCEPT"$'\n'
+            trusted_rules+="-A ufw6-before-input -s $subnet -j ACCEPT"$'\n'
         elif [[ "$proto_flag" == "inet" && "$subnet" != *":"* ]]; then
             trusted_rules+="-A ufw-before-input -s $subnet -j ACCEPT"$'\n'
         fi

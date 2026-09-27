@@ -305,6 +305,14 @@ This script operates at Layer 4 (iptables). If your server is behind a CDN like 
 - **Rules Not Applying**: Run `lsmod | grep xt_geoip` to ensure the kernel module is loaded. Some VPS kernels (like OpenVZ) may not support custom kernel modules.
 - **UFW Errors**: Check `/var/log/syslog` for iptables syntax errors.
 
+### Traffic is not blocked through an overseas VPN
+
+Older versions failed to generate GeoIP rules for command-line port lists and some CSV rows, and used the IPv4 chain name for IPv6 trusted subnets. Applying these fixes requires rerunning the corrected `install.sh` with your original countries, ports, and `TRUSTED_SUBNETS` settings; replacing the database updater alone is insufficient. First check the target ports' GeoIP DROP rules with `--dry-run`, then follow the normal SSH verification and `geoipblock-confirm` workflow after installation.
+
+Inspect the live configuration with `sudo ufw status verbose`, `sudo iptables-save`, and `sudo ip6tables-save`. The existence of ipsets does not demonstrate that GeoIP rules are installed. Failing to confirm installation within three minutes also removes the GeoIP rules.
+
+Test a new connection to the configured port after switching VPNs; established connections are allowed. Check the source IP seen by the server, the connection's IP family, and whether it matches a trusted subnet. The Docker and CDN limitations above still apply. The VPN's advertised country may differ from the country assigned by the installed GeoIP database.
+
 ## ⚖️ Disclaimer (免責事項)
 **USE AT YOUR OWN RISK.** This tool modifies your system's firewall rules. 
 - The author is **NOT responsible** for any damage, data loss, or server lockouts caused by the use of this script.
